@@ -1,8 +1,12 @@
 package com.interviewassistant.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interviewassistant.common.Result;
 import com.interviewassistant.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -36,9 +40,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ObjectMapper objectMapper;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
+                          ObjectMapper objectMapper) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.objectMapper = objectMapper;
     }
 
     @Bean
@@ -57,6 +64,15 @@ public class SecurityConfig {
                 .anyRequest().authenticated()                   // 其他接口：需要认证
             )
 
+            .exceptionHandling(exception -> exception
+                .authenticationEntryPoint((request, response, authException) ->
+                        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED,
+                                Result.error(401, "未登录或 token 已过期")))
+                .accessDeniedHandler((request, response, accessDeniedException) ->
+                        writeErrorResponse(response, HttpServletResponse.SC_FORBIDDEN,
+                                Result.error(403, "权限不足")))
+            )
+
             // 把 JWT 过滤器加到 Spring Security 过滤器链中
             // 放在 UsernamePasswordAuthenticationFilter 之前，确保先解析 JWT
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -67,6 +83,15 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    private void writeErrorResponse(HttpServletResponse response,
+                                    int status,
+                                    Result<Void> body) throws java.io.IOException {
+        response.setStatus(status);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        objectMapper.writeValue(response.getWriter(), body);
     }
 
     /**
