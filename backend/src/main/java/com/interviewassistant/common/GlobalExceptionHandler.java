@@ -50,6 +50,15 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * AI 服务异常 — DeepSeek API 调用失败（超时、限流、网络等）。
+     */
+    @ExceptionHandler(AIServiceException.class)
+    public ResponseEntity<Result<Void>> handleAIServiceException(AIServiceException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Result.error(503, ex.getMessage()));
+    }
+
+    /**
      * 未认证 — 未携带有效 token 访问需要认证的接口。
      */
     @ExceptionHandler(AuthenticationException.class)
