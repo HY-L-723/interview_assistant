@@ -1,0 +1,38 @@
+# Build output
+target/
+out/
+dist/
+build/
+
+# Local tools and dependency caches
+.tools/
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime and environment files
+.env
+.env.*
+!.env.example
+
+# Frontend dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Java archives generated locally
+*.class
+*.jar
+*.war
+*.ear

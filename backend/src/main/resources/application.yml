@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+
+---
+# 开发环境配置
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/interview_assistant?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update          # 开发时自动建表/更新表结构，生产环境改成 validate
+    show-sql: true              # 控制台打印 SQL，调试用
+    properties:
+      hibernate:
+        format_sql: true        # SQL 格式化输出
+        dialect: org.hibernate.dialect.MySQLDialect
+
+# JWT 配置
+jwt:
+  secret: interview-assistant-secret-key-must-be-at-least-256-bits-long-for-hs256
+  expiration: 86400000          # token 有效期：24小时（毫秒）
+
+# 大模型 API 配置（先预留，后续接入）
+llm:
+  api-key: your-api-key-here
+  api-url: https://api.openai.com/v1/chat/completions
+  model: gpt-3.5-turbo
