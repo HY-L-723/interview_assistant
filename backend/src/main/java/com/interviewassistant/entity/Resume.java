@@ -44,6 +44,15 @@ public class Resume {
     @Column(columnDefinition = "TEXT")
     private String projects;      // JSON: [{"name":"...","desc":"...","tech":"..."}]
 
+    @Column(name = "photo_url", length = 500)
+    private String photoUrl;
+
+    @Column(name = "target_position", length = 100)
+    private String targetPosition;
+
+    @Column(name = "generated_content", columnDefinition = "TEXT")
+    private String generatedContent;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

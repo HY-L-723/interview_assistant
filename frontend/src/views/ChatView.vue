@@ -1,12 +1,17 @@
 <template>
   <div class="layout">
     <!-- ====== sidebar ====== -->
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-top">
         <h3 class="sidebar-title">面试助手</h3>
-        <el-button type="primary" class="new-conv-btn" @click="handleNewConversation">
-          <el-icon><Plus /></el-icon> 新对话
-        </el-button>
+        <div class="sidebar-actions">
+          <el-button type="primary" class="new-conv-btn" @click="handleNewConversation">
+            <el-icon><Plus /></el-icon> 新对话
+          </el-button>
+          <el-button class="resume-btn" @click="goResume">
+            <el-icon><Document /></el-icon> 简历生成
+          </el-button>
+        </div>
       </div>
 
       <div class="conv-list" v-if="conversations.length > 0">
@@ -57,6 +62,26 @@
     <!-- ====== main ====== -->
     <main class="main">
       <div class="msg-area" ref="msgContainer" @scroll="onScroll">
+        <!-- 顶栏：折叠按钮 + 下拉定位，始终可见，无缝隙 -->
+        <div class="qa-nav">
+          <el-button text class="toggle-btn" @click="sidebarCollapsed = !sidebarCollapsed">
+            <el-icon :size="18">
+              <ArrowRight v-if="sidebarCollapsed" />
+              <ArrowLeft v-else />
+            </el-icon>
+          </el-button>
+          <el-select v-if="activeConvId && userQuestions.length > 0"
+            v-model="selectedQuestion" placeholder="快速定位问题..." clearable
+            @change="jumpToQuestion" style="flex:1">
+            <el-option
+              v-for="q in userQuestions"
+              :key="q.index"
+              :label="q.seq + '. ' + q.preview"
+              :value="q.index"
+            />
+          </el-select>
+        </div>
+
         <div v-if="loadingMsgs" class="center-state">
           <el-icon class="is-loading" :size="28"><Loading /></el-icon>
           <span>加载中...</span>
@@ -68,7 +93,8 @@
         </div>
 
         <template v-else>
-          <div v-for="(msg, i) in messages" :key="i" :class="['msg-row', msg.role]">
+          <div v-for="(msg, i) in messages" :key="i" :class="['msg-row', msg.role]"
+               :id="'msg-' + i">
             <div class="msg-bubble">
               <div v-if="msg.role === 'assistant' && !msg.failed"
                    class="msg-text markdown-body"
@@ -101,7 +127,6 @@
         <div class="footer-left">
           <el-switch
             v-model="flashMode"
-            size="small"
             active-text="Flash"
             inactive-text="Pro"
             style="--el-switch-on-color: #6366f1; --el-switch-off-color: #a5b4fc;"
@@ -113,6 +138,7 @@
             placeholder="输入你的问题，按 Enter 发送"
             :disabled="sending || !activeConvId"
             @keyup.enter="handleSend"
+            size="large"
           />
           <el-button v-if="!sending"
             type="primary"
@@ -132,10 +158,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Loading, RefreshRight, ArrowDown, Delete, Close } from '@element-plus/icons-vue'
+import { Plus, Loading, RefreshRight, ArrowDown, Delete, Close, Document, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import {
   sendMessageStream, createConversation, listConversations,
@@ -152,6 +178,37 @@ const activeConvId = ref(null)
 const showScrollBtn = ref(false)
 const flashMode = ref(false)
 const abortController = ref(null)
+const sidebarCollapsed = ref(false)
+const selectedQuestion = ref(null)
+
+const userQuestions = computed(() => {
+  const result = []
+  let seq = 0
+  messages.forEach((m, i) => {
+    if (m.role === 'user') {
+      seq++
+      result.push({
+        index: i,
+        seq: seq,
+        preview: stripMarkdown(m.content)
+      })
+    }
+  })
+  return result
+})
+
+function stripMarkdown(text) {
+  if (!text) return ''
+  return text
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+    .replace(/^>\s+/gm, '')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/(\*\*\*|___|---)/g, '')
+}
 
 const conversations = reactive([])
 const messages = reactive([])
@@ -383,6 +440,17 @@ function onScroll() {
   showScrollBtn.value = el.scrollHeight - el.scrollTop - el.clientHeight > 150
 }
 
+function jumpToQuestion(index) {
+  nextTick(() => {
+    const el = document.getElementById('msg-' + index)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      el.style.background = '#fef3c7'
+      setTimeout(() => { el.style.background = '' }, 2000)
+    }
+  })
+}
+
 // ---- auth ----
 
 function handleLogout() {
@@ -395,6 +463,10 @@ function handleLogout() {
 function goAccount() {
   router.push('/account')
 }
+
+function goResume() {
+  router.push('/resume')
+}
 </script>
 
 <style scoped>
@@ -402,16 +474,25 @@ function goAccount() {
 
 /* ====== sidebar ====== */
 .sidebar {
-  width: 20%;
-  min-width: 240px;
+  width: 30%;
+  min-width: 280px;
   display: flex;
   flex-direction: column;
   background: #e8e8ea;
+  transition: width 0.25s, min-width 0.25s, opacity 0.2s;
+  overflow: hidden;
+}
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
 }
 
 .sidebar-top { padding: 16px 14px 12px; }
 .sidebar-title { margin: 0 0 10px; font-size: 17px; color: #303133; }
-.new-conv-btn { width: 100%; }
+.sidebar-actions { display: flex; gap: 8px; }
+.new-conv-btn { flex: 1; }
+.resume-btn { flex: 1; }
 
 .conv-list {
   flex: 1;
@@ -482,6 +563,7 @@ function goAccount() {
   background: #fff;
 }
 
+
 .msg-area {
   flex: 1;
   overflow-y: auto;
@@ -501,15 +583,27 @@ function goAccount() {
 .center-state.welcome h3 { margin: 0; color: #374151; }
 .center-state.welcome p { margin: 0; font-size: 14px; }
 
+.qa-nav {
+  padding: 10px 20px;
+  margin: -20px -24px 0 -24px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex; align-items: center; gap: 10px;
+  position: sticky; top: 0; z-index: 100;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.toggle-btn { color: #6b7280; flex-shrink: 0; }
+.toggle-btn:hover { color: #4F46E5; }
+
 /* messages */
-.msg-row { display: flex; margin-bottom: 16px; }
+.msg-row { display: flex; margin-bottom: 16px; scroll-margin-top: 60px; }
 .msg-row.user { justify-content: flex-end; }
 .msg-row.assistant { justify-content: flex-start; }
 
 .msg-bubble {
   max-width: 80%;
   padding: 12px 16px;
-  border-radius: 12px;
+  border-radius: 18px;
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
@@ -517,12 +611,10 @@ function goAccount() {
 .msg-row.user .msg-bubble {
   background: #4F46E5;
   color: #fff;
-  border-bottom-right-radius: 4px;
 }
 .msg-row.assistant .msg-bubble {
   background: #f3f4f6;
   color: #1f2937;
-  border-bottom-left-radius: 4px;
 }
 
 .msg-meta { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
@@ -599,8 +691,8 @@ function goAccount() {
 .footer {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 24px;
+  gap: 16px;
+  padding: 20px 28px;
   border-top: 1px solid #e5e7eb;
   flex-shrink: 0;
   background: #fff;
