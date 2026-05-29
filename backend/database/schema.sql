@@ -16,17 +16,37 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uk_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
+CREATE TABLE IF NOT EXISTS conversations (
+  id BIGINT NOT NULL AUTO_INCREMENT COMMENT '对话 ID',
+  user_id BIGINT NOT NULL COMMENT '所属用户',
+  title VARCHAR(100) NOT NULL COMMENT '对话标题',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  KEY idx_conversations_user_updated_at (user_id, updated_at),
+  CONSTRAINT fk_conversations_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话表';
+
 CREATE TABLE IF NOT EXISTS chat_messages (
   id BIGINT NOT NULL AUTO_INCREMENT COMMENT '消息 ID',
   user_id BIGINT NOT NULL COMMENT '所属用户',
+  conversation_id BIGINT NULL COMMENT '所属对话',
   role VARCHAR(20) NOT NULL COMMENT 'user 或 assistant',
   content TEXT NOT NULL COMMENT '消息内容',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发送时间',
   PRIMARY KEY (id),
   KEY idx_chat_messages_user_id (user_id),
+  KEY idx_chat_messages_conversation_created_at (conversation_id, created_at),
   KEY idx_chat_messages_user_role_created_at (user_id, role, created_at),
   CONSTRAINT fk_chat_messages_user
     FOREIGN KEY (user_id) REFERENCES users (id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE,
+  CONSTRAINT fk_chat_messages_conversation
+    FOREIGN KEY (conversation_id) REFERENCES conversations (id)
     ON DELETE CASCADE
     ON UPDATE CASCADE,
   CONSTRAINT chk_chat_messages_role

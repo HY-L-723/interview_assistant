@@ -3,6 +3,7 @@ package com.interviewassistant.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interviewassistant.common.Result;
 import com.interviewassistant.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -60,8 +61,9 @@ public class SecurityConfig {
 
             // 接口权限配置
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**").permitAll()   // 登录/注册：无需认证
-                .anyRequest().authenticated()                   // 其他接口：需要认证
+                .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
+                .requestMatchers("/api/auth/**").permitAll()
+                .anyRequest().authenticated()
             )
 
             .exceptionHandling(exception -> exception

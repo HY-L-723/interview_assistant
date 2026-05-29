@@ -37,7 +37,7 @@ llm:
   api-key: ${DEEPSEEK_API_KEY:}
   api-url: ${DEEPSEEK_API_URL:https://api.deepseek.com/chat/completions}
   model: deepseek-v4-pro
-  timeout: 30000
+  timeout: 60000
   system-prompt: |
     你是一位专业的计算机专业面试辅导助手。你的任务是帮助计算机专业的学生准备技术面试，
     包括但不限于：数据结构与算法、操作系统、计算机网络、数据库、编程语言等核心课程的知识点讲解和模拟面试。

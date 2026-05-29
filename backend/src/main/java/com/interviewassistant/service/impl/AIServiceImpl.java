@@ -1,7 +1,9 @@
 package com.interviewassistant.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interviewassistant.ai.DeepSeekRequest;
 import com.interviewassistant.ai.DeepSeekResponse;
+import com.interviewassistant.ai.DeepSeekStreamChunk;
 import com.interviewassistant.common.AIServiceException;
 import com.interviewassistant.service.AIService;
 import org.slf4j.Logger;
@@ -14,9 +16,11 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class AIServiceImpl implements AIService {
@@ -29,6 +33,7 @@ public class AIServiceImpl implements AIService {
     private final String model;
     private final String systemPrompt;
     private final Duration timeout;
+    private final ObjectMapper objectMapper;
 
     public AIServiceImpl(
             @Value("${llm.api-key}") String apiKey,
@@ -41,6 +46,7 @@ public class AIServiceImpl implements AIService {
         this.model = model;
         this.systemPrompt = systemPrompt;
         this.timeout = Duration.ofMillis(timeoutMs);
+        this.objectMapper = new ObjectMapper();
         this.webClient = WebClient.builder()
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
@@ -48,6 +54,11 @@ public class AIServiceImpl implements AIService {
 
     @Override
     public String chat(String userMessage) {
+        return chat(userMessage, model);
+    }
+
+    @Override
+    public String chat(String userMessage, String requestModel) {
         long start = System.currentTimeMillis();
 
         if (!StringUtils.hasText(apiKey)) {
@@ -55,7 +66,8 @@ public class AIServiceImpl implements AIService {
         }
 
         DeepSeekRequest request = new DeepSeekRequest();
-        request.setModel(model);
+        String effectiveModel = StringUtils.hasText(requestModel) ? requestModel : model;
+        request.setModel(effectiveModel);
         request.setMessages(List.of(
                 new DeepSeekRequest.Message("system", systemPrompt),
                 new DeepSeekRequest.Message("user", userMessage)
@@ -69,6 +81,9 @@ public class AIServiceImpl implements AIService {
                     .retrieve()
                     .bodyToMono(DeepSeekResponse.class)
                     .timeout(timeout)
+                    .onErrorMap(TimeoutException.class,
+                            e -> new AIServiceException(
+                                    "AI 服务响应超时（" + timeout.getSeconds() + " 秒），请稍后重试", e))
                     .block();
 
             long elapsed = System.currentTimeMillis() - start;
@@ -109,5 +124,67 @@ public class AIServiceImpl implements AIService {
             log.error("AI 调用未知异常, 耗时: {}ms", elapsed, e);
             throw new AIServiceException("AI 服务暂时不可用，请稍后重试", e);
         }
+    }
+
+    @Override
+    public Flux<String> chatStream(String userMessage, String requestModel) {
+        if (!StringUtils.hasText(apiKey)) {
+            return Flux.error(new AIServiceException("DeepSeek API Key 未配置"));
+        }
+
+        DeepSeekRequest request = new DeepSeekRequest();
+        String effectiveModel = StringUtils.hasText(requestModel) ? requestModel : model;
+        request.setModel(effectiveModel);
+        request.setStream(true);
+        request.setMessages(List.of(
+                new DeepSeekRequest.Message("system", systemPrompt),
+                new DeepSeekRequest.Message("user", userMessage)
+        ));
+
+        return webClient.post()
+                .uri(apiUrl)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .timeout(timeout)
+                .onErrorMap(TimeoutException.class,
+                        e -> new AIServiceException(
+                                "AI 服务响应超时（" + timeout.getSeconds() + " 秒），请稍后重试", e))
+                .flatMap(chunk -> Flux.fromArray(chunk.split("\n")))
+                .map(String::trim)
+                .filter(line -> !line.isEmpty())
+                .map(this::normalizeStreamData)
+                .filter(data -> !"[DONE]".equals(data))
+                .filter(data -> data.startsWith("{"))
+                .<String>handle((data, sink) -> {
+                    try {
+                        DeepSeekStreamChunk chunk = objectMapper.readValue(data, DeepSeekStreamChunk.class);
+                        if (chunk.getChoices() != null && !chunk.getChoices().isEmpty()) {
+                            DeepSeekStreamChunk.Delta delta = chunk.getChoices().get(0).getDelta();
+                            if (delta != null && delta.getContent() != null && !delta.getContent().isEmpty()) {
+                                sink.next(delta.getContent());
+                            } else {
+                                log.debug("流式分片无正文内容, finish_reason={}",
+                                        chunk.getChoices().get(0).getFinishReason());
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("解析流式分片失败: {}", data.substring(0, Math.min(100, data.length())), e);
+                    }
+                })
+                .onErrorMap(e -> {
+                    if (e instanceof AIServiceException) return e;
+                    log.error("AI 流式调用异常", e);
+                    return new AIServiceException("AI 服务连接异常，请稍后重试", e);
+                });
+    }
+
+    private String normalizeStreamData(String line) {
+        if (line.startsWith("data:")) {
+            return line.substring(5).trim();
+        }
+        return line;
     }
 }
