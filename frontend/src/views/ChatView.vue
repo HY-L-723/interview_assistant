@@ -478,7 +478,7 @@ function goResume() {
   min-width: 280px;
   display: flex;
   flex-direction: column;
-  background: #e8e8ea;
+  background: #eef2f7;
   transition: width 0.25s, min-width 0.25s, opacity 0.2s;
   overflow: hidden;
 }
@@ -497,7 +497,7 @@ function goResume() {
 .conv-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 8px;
+  padding: 0 10px;
 }
 
 .conv-item {
@@ -505,11 +505,13 @@ function goResume() {
   padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
-  margin-bottom: 3px;
-  transition: background 0.15s;
+  margin-bottom: 6px;
+  transition: background 0.15s, border-color 0.15s;
+  background: #fff;
+  border: 1px solid #e2e8f1;
 }
-.conv-item:hover { background: #d4d4d8; }
-.conv-item.active { background: #c7d2fe; }
+.conv-item:hover { background: #f0f4ff; border-color: #c4d0e8; }
+.conv-item.active { background: #fff; border-color: #3f76bc; }
 
 .conv-title {
   font-size: 13px;
