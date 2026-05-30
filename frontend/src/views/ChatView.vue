@@ -11,6 +11,9 @@
           <el-button class="resume-btn" @click="goResume">
             <el-icon><Document /></el-icon> 简历生成
           </el-button>
+          <el-button class="interview-btn" @click="goInterview">
+            <el-icon><ChatLineSquare /></el-icon> 模拟面试
+          </el-button>
         </div>
       </div>
 
@@ -161,7 +164,7 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Loading, RefreshRight, ArrowDown, Delete, Close, Document, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Plus, Loading, RefreshRight, ArrowDown, Delete, Close, Document, ChatLineSquare, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import {
   sendMessageStream, createConversation, listConversations,
@@ -467,6 +470,10 @@ function goAccount() {
 function goResume() {
   router.push('/resume')
 }
+
+function goInterview() {
+  router.push('/interview')
+}
 </script>
 
 <style scoped>
@@ -493,6 +500,7 @@ function goResume() {
 .sidebar-actions { display: flex; gap: 8px; }
 .new-conv-btn { flex: 1; }
 .resume-btn { flex: 1; }
+.interview-btn { flex: 1 1 100%; }
 
 .conv-list {
   flex: 1;
