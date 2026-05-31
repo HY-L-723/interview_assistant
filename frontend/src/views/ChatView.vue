@@ -166,6 +166,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Loading, RefreshRight, ArrowDown, Delete, Close, Document, ChatLineSquare, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import {
   sendMessageStream, createConversation, listConversations,
   getConversationMessages, deleteConversation
@@ -296,7 +297,7 @@ async function switchConversation(conv) {
 // ---- messaging ----
 
 function renderMd(text) {
-  return marked(text || '')
+  return DOMPurify.sanitize(marked(text || ''))
 }
 
 function fmtTime(date) {
