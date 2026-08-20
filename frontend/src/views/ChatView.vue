@@ -3,7 +3,7 @@
     <!-- ====== sidebar ====== -->
     <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-top">
-        <h3 class="sidebar-title">面试助手</h3>
+        <div class="sidebar-brand"><span class="brand-icon"><el-icon><MagicStick /></el-icon></span><div><h3 class="sidebar-title">面试助手</h3><small>AI Interview Studio</small></div></div>
         <div class="sidebar-actions">
           <el-button type="primary" class="new-conv-btn" @click="handleNewConversation">
             <el-icon><Plus /></el-icon> 新对话
@@ -18,6 +18,7 @@
       </div>
 
       <div class="conv-list" v-if="conversations.length > 0">
+        <p class="section-label">最近对话</p>
         <div
           v-for="conv in conversations"
           :key="conv.id"
@@ -44,7 +45,7 @@
       <div class="sidebar-footer">
         <el-popover placement="top" :width="220" trigger="click">
           <template #reference>
-            <span class="user-name">{{ username }}</span>
+            <span class="user-entry"><span class="user-avatar">{{ username.slice(0, 1).toUpperCase() }}</span><span><b>{{ username }}</b><small>个人中心</small></span><el-icon><ArrowUp /></el-icon></span>
           </template>
           <div class="user-info-pop">
             <p><strong>用户名：</strong>{{ username }}</p>
@@ -73,6 +74,10 @@
               <ArrowLeft v-else />
             </el-icon>
           </el-button>
+          <div class="chat-heading">
+            <strong>{{ activeConversationTitle }}</strong>
+            <span><i></i> AI 助手在线</span>
+          </div>
           <el-select v-if="activeConvId && userQuestions.length > 0"
             v-model="selectedQuestion" placeholder="快速定位问题..." clearable
             @change="jumpToQuestion" style="flex:1">
@@ -98,7 +103,10 @@
         <template v-else>
           <div v-for="(msg, i) in messages" :key="i" :class="['msg-row', msg.role]"
                :id="'msg-' + i">
-            <div class="msg-bubble">
+            <div v-if="msg.role === 'assistant'" class="message-avatar assistant-avatar"><el-icon><MagicStick /></el-icon></div>
+            <div class="message-stack">
+              <span class="message-author">{{ msg.role === 'assistant' ? '面试助手' : '你' }}</span>
+              <div class="msg-bubble">
               <div v-if="msg.role === 'assistant' && !msg.failed"
                    class="msg-text markdown-body"
                    v-html="renderMd(msg.content)" />
@@ -112,6 +120,8 @@
                 </el-button>
               </div>
             </div>
+            </div>
+            <div v-if="msg.role === 'user'" class="message-avatar user-avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
           </div>
         </template>
 
@@ -127,6 +137,7 @@
       </div>
 
       <footer class="footer">
+        <div class="composer">
         <div class="footer-left">
           <el-switch
             v-model="flashMode"
@@ -144,10 +155,11 @@
             size="large"
           />
           <el-button v-if="!sending"
+            circle class="send-btn"
             type="primary"
             :disabled="!input.trim() || !activeConvId"
             @click="handleSend"
-          >发送</el-button>
+          ><el-icon><Promotion /></el-icon></el-button>
           <el-button v-else
             type="danger"
             @click="handleStop"
@@ -155,6 +167,8 @@
             <el-icon><Close /></el-icon> 停止
           </el-button>
         </div>
+        </div>
+        <p class="composer-hint">AI 生成内容仅供参考，请结合实际情况判断</p>
       </footer>
     </main>
   </div>
@@ -164,7 +178,7 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Loading, RefreshRight, ArrowDown, Delete, Close, Document, ChatLineSquare, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Plus, Loading, RefreshRight, ArrowDown, ArrowUp, Delete, Close, Document, ChatLineSquare, ArrowLeft, ArrowRight, MagicStick, Promotion } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
@@ -184,6 +198,7 @@ const flashMode = ref(false)
 const abortController = ref(null)
 const sidebarCollapsed = ref(false)
 const selectedQuestion = ref(null)
+const activeConversationTitle = computed(() => conversations.find(c => c.id === activeConvId.value)?.title || '新对话')
 
 const userQuestions = computed(() => {
   const result = []
@@ -478,15 +493,16 @@ function goInterview() {
 </script>
 
 <style scoped>
-.layout { display: flex; height: 100vh; }
+.layout { display: flex; height: 100vh; background: #f7f9f9; color: #1c2d31; }
 
 /* ====== sidebar ====== */
 .sidebar {
-  width: 30%;
-  min-width: 280px;
+  width: 288px;
+  min-width: 288px;
   display: flex;
   flex-direction: column;
-  background: #eef2f7;
+  background: linear-gradient(175deg, #eaf8fa 0%, #edf8f2 52%, #f3f7dc 100%);
+  border-right: 1px solid rgba(64, 108, 107, .1);
   transition: width 0.25s, min-width 0.25s, opacity 0.2s;
   overflow: hidden;
 }
@@ -496,18 +512,23 @@ function goInterview() {
   opacity: 0;
 }
 
-.sidebar-top { padding: 16px 14px 12px; }
-.sidebar-title { margin: 0 0 10px; font-size: 17px; color: #303133; }
-.sidebar-actions { display: flex; gap: 8px; }
-.new-conv-btn { flex: 1; }
-.resume-btn { flex: 1; }
-.interview-btn { flex: 1 1 100%; }
+.sidebar-top { padding: 24px 16px 14px; }
+.sidebar-brand { display: flex; align-items: center; gap: 11px; margin: 0 4px 24px; }
+.brand-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; color: #fff; background: #1d5153; box-shadow: 0 8px 18px rgba(29,81,83,.17); }
+.sidebar-title { margin: 0; font-size: 16px; color: #183b3e; }
+.sidebar-brand small { display: block; margin-top: 2px; color: #7d9998; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.sidebar-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sidebar-actions :deep(.el-button) { margin: 0; border-radius: 10px; }
+.new-conv-btn { grid-column: 1 / -1; height: 42px; border: 0; background: #1d5153; }
+.new-conv-btn:hover { background: #29686a; }
+.resume-btn, .interview-btn { height: 36px; color: #496666; border-color: rgba(66,106,105,.16); background: rgba(255,255,255,.45); }
 
 .conv-list {
   flex: 1;
   overflow-y: auto;
   padding: 0 10px;
 }
+.section-label { margin: 12px 8px 8px; color: #89a09e; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 
 .conv-item {
   position: relative;
@@ -516,11 +537,11 @@ function goInterview() {
   cursor: pointer;
   margin-bottom: 6px;
   transition: background 0.15s, border-color 0.15s;
-  background: #fff;
-  border: 1px solid #e2e8f1;
+  background: transparent;
+  border: 1px solid transparent;
 }
-.conv-item:hover { background: #f0f4ff; border-color: #c4d0e8; }
-.conv-item.active { background: #fff; border-color: #3f76bc; }
+.conv-item:hover { background: rgba(255,255,255,.48); border-color: rgba(53,111,108,.08); }
+.conv-item.active { background: rgba(255,255,255,.72); border-color: rgba(53,111,108,.12); box-shadow: 0 6px 18px rgba(52,97,95,.07); }
 
 .conv-title {
   font-size: 13px;
@@ -558,12 +579,14 @@ function goInterview() {
 .sidebar-footer {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 10px 14px;
-  border-top: 1px solid #d4d4d8;
+  padding: 12px 16px 18px;
+  border-top: 1px solid rgba(50,90,89,.1);
 }
-.user-name { font-size: 13px; color: #4b5563; cursor: pointer; }
-.user-name:hover { color: #4F46E5; }
+.user-entry { display: flex; align-items: center; gap: 10px; width: 100%; color: #365455; cursor: pointer; }
+.user-entry > span:nth-child(2) { flex: 1; }
+.user-entry b, .user-entry small { display: block; font-size: 12px; }
+.user-entry small { margin-top: 2px; color: #8ba09f; font-size: 10px; }
+.user-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: #d9a24f; color: #fff; font-size: 12px; font-weight: 800; }
 
 /* ====== main ====== */
 .main {
@@ -571,14 +594,14 @@ function goInterview() {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #fff;
+  background: #fbfcfc;
 }
 
 
 .msg-area {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 76px max(28px, calc((100% - 900px) / 2)) 32px;
   position: relative;
 }
 
@@ -595,37 +618,53 @@ function goInterview() {
 .center-state.welcome p { margin: 0; font-size: 14px; }
 
 .qa-nav {
-  padding: 10px 20px;
-  margin: -20px -24px 0 -24px;
+  height: 58px;
+  padding: 0 22px;
+  margin: -76px calc(-1 * max(28px, (100% - 900px) / 2)) 24px;
   border-bottom: 1px solid #e5e7eb;
   display: flex; align-items: center; gap: 10px;
   position: sticky; top: 0; z-index: 100;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  background: rgba(255,255,255,.9);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 1px 0 rgba(26,57,59,.05);
 }
+.chat-heading { display: flex; flex-direction: column; min-width: 0; }
+.chat-heading strong { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #274345; font-size: 13px; }
+.chat-heading span { display: flex; align-items: center; gap: 5px; margin-top: 2px; color: #94a5a5; font-size: 10px; }
+.chat-heading i { width: 6px; height: 6px; border-radius: 50%; background: #65b88a; box-shadow: 0 0 0 3px rgba(101,184,138,.12); }
+.qa-nav :deep(.el-select) { margin-left: auto; max-width: 280px; }
 .toggle-btn { color: #6b7280; flex-shrink: 0; }
 .toggle-btn:hover { color: #4F46E5; }
 
 /* messages */
-.msg-row { display: flex; margin-bottom: 16px; scroll-margin-top: 60px; }
+.msg-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 24px; scroll-margin-top: 70px; transition: background .3s; }
 .msg-row.user { justify-content: flex-end; }
 .msg-row.assistant { justify-content: flex-start; }
+.message-stack { display: flex; flex-direction: column; max-width: min(78%, 720px); }
+.msg-row.user .message-stack { align-items: flex-end; }
+.message-author { margin: 0 4px 6px; color: #95a2a3; font-size: 11px; }
+.message-avatar { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; }
+.assistant-avatar { color: #fff; background: #2a7773; box-shadow: 0 6px 14px rgba(42,119,115,.16); }
 
 .msg-bubble {
-  max-width: 80%;
-  padding: 12px 16px;
-  border-radius: 18px;
+  max-width: 100%;
+  padding: 13px 17px;
+  border-radius: 6px 18px 18px 18px;
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
 }
 .msg-row.user .msg-bubble {
-  background: #4F46E5;
+  background: linear-gradient(135deg, #286d6b, #245b5f);
   color: #fff;
+  border-radius: 18px 6px 18px 18px;
+  box-shadow: 0 8px 20px rgba(36,91,95,.12);
 }
 .msg-row.assistant .msg-bubble {
-  background: #f3f4f6;
-  color: #1f2937;
+  background: #fff;
+  color: #263b3e;
+  border: 1px solid #e7eeee;
+  box-shadow: 0 8px 24px rgba(36,62,65,.055);
 }
 
 .msg-meta { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
@@ -700,14 +739,24 @@ function goInterview() {
 
 /* footer */
 .footer {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px 28px;
-  border-top: 1px solid #e5e7eb;
+  display: flex; flex-direction: column;
+  padding: 12px max(28px, calc((100% - 900px) / 2)) 14px;
   flex-shrink: 0;
-  background: #fff;
+  background: linear-gradient(to top, #fbfcfc 82%, rgba(251,252,252,0));
 }
-.footer-left { flex-shrink: 0; }
+.composer { display: flex; align-items: center; width: 100%; padding: 9px 10px 9px 16px; border: 1px solid #dce7e6; border-radius: 20px; background: #fff; box-shadow: 0 12px 35px rgba(40,66,68,.1); }
+.footer-left { flex-shrink: 0; margin-right: 12px; }
 .footer-right { display: flex; gap: 10px; flex: 1; }
+.footer-right :deep(.el-input__wrapper) { box-shadow: none; padding: 0 4px; }
+.send-btn { width: 38px; height: 38px; border: 0; background: #1e4d50; }
+.composer-hint { margin: 8px 0 0; color: #a3adae; font-size: 10px; }
+@media (max-width: 760px) {
+  .sidebar { position: absolute; z-index: 300; height: 100%; box-shadow: 12px 0 30px rgba(34,62,64,.12); }
+  .msg-area { padding-left: 16px; padding-right: 16px; }
+  .qa-nav { margin-left: -16px; margin-right: -16px; }
+  .footer { padding-left: 14px; padding-right: 14px; }
+  .message-stack { max-width: calc(100% - 46px); }
+  .chat-heading { display: none; }
+  .footer-left { display: none; }
+}
 </style>
