@@ -5,6 +5,7 @@ import com.interviewassistant.dto.AnswerRequest;
 import com.interviewassistant.dto.InterviewDetailResponse;
 import com.interviewassistant.dto.InterviewSessionResponse;
 import com.interviewassistant.dto.StartInterviewRequest;
+import com.interviewassistant.dto.TerminateInterviewRequest;
 import com.interviewassistant.service.InterviewService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -14,7 +15,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * 模拟面试控制器。
@@ -85,8 +85,8 @@ public class InterviewController {
      */
     @PostMapping("/terminate")
     public SseEmitter terminate(@AuthenticationPrincipal Long userId,
-                                @RequestBody Map<String, Long> body) {
-        Long sessionId = body.get("sessionId");
+                                @Valid @RequestBody TerminateInterviewRequest request) {
+        Long sessionId = request.getSessionId();
         log.info("终止模拟面试: userId={}, sessionId={}", userId, sessionId);
         SseEmitter emitter = new SseEmitter(180_000L);
         interviewService.terminateInterview(userId, sessionId, emitter);

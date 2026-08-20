@@ -1,9 +1,10 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '../router'
+import { API_BASE_URL } from '../config/app'
 
 const request = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE_URL,
   timeout: 30000
 })
 
@@ -23,7 +24,7 @@ request.interceptors.response.use(
     const res = response.data
     if (res.code !== 200) {
       ElMessage.error(res.message || '请求失败')
-      return Promise.reject(new Error(res.message))
+      return Promise.reject(new Error(res.message || '请求失败'))
     }
     return res
   },

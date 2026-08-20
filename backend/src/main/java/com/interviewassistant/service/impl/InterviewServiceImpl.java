@@ -102,23 +102,11 @@ public class InterviewServiceImpl implements InterviewService {
                     .name("greeting")
                     .data(Map.of("message", greeting)));
 
-            // 3. AI 生成面试题目
-            String questionPrompt = buildQuestionGenerationPrompt(position, defaultQuestionCount);
-            log.info("开始生成面试题目: sessionId={}", session.getId());
-            String aiResponse = aiService.chat(questionPrompt);
+            // 3. 只生成首题；后续题目在每次评分后按薄弱点动态生成。
+            InterviewQuestion firstQuestion = generateNextQuestion(session, List.of());
+            questions = List.of(questionRepository.save(firstQuestion));
 
-            // 4. 解析题目
-            questions = parseQuestions(session, aiResponse);
-            if (questions.isEmpty()) {
-                throw new BusinessException("AI 生成题目失败，请重试");
-            }
-            questions = questionRepository.saveAll(questions);
-
-            // 更新实际题目数
-            session.setTotalQuestions(questions.size());
-            sessionRepository.save(session);
-
-            log.info("面试题目生成完成: sessionId={}, 题目数={}", session.getId(), questions.size());
+            log.info("面试首题生成完成: sessionId={}", session.getId());
 
             // 5. 推送会话创建事件
             emitter.send(SseEmitter.event()
@@ -126,10 +114,10 @@ public class InterviewServiceImpl implements InterviewService {
                     .data(Map.of(
                             "sessionId", session.getId(),
                             "position", position,
-                            "totalQuestions", questions.size())));
+                            "totalQuestions", session.getTotalQuestions())));
 
             // 6. 推送第一题
-            InterviewQuestion firstQuestion = questions.get(0);
+            firstQuestion = questions.get(0);
             emitter.send(SseEmitter.event()
                     .name("question")
                     .data(Map.of(
@@ -137,7 +125,7 @@ public class InterviewServiceImpl implements InterviewService {
                             "questionText", firstQuestion.getQuestionText(),
                             "category", firstQuestion.getCategory() != null ? firstQuestion.getCategory() : "",
                             "difficulty", firstQuestion.getDifficulty() != null ? firstQuestion.getDifficulty() : "",
-                            "totalQuestions", questions.size())));
+                            "totalQuestions", session.getTotalQuestions())));
 
             emitter.complete();
 
@@ -169,9 +157,10 @@ public class InterviewServiceImpl implements InterviewService {
                     .findFirst()
                     .orElseThrow(() -> new BusinessException("所有题目已作答完毕"));
 
-            // 3. 保存回答
+            // 3. 保存回答并立即评分
             currentQuestion.setUserAnswer(answer);
             currentQuestion.setAnsweredAt(LocalDateTime.now());
+            scoreAnswer(session, currentQuestion);
             questionRepository.save(currentQuestion);
 
             int newAnsweredCount = session.getAnsweredCount() + 1;
@@ -181,21 +170,22 @@ public class InterviewServiceImpl implements InterviewService {
             log.info("回答已保存: sessionId={}, questionNumber={}, answeredCount={}/{}",
                     sessionId, currentQuestion.getQuestionNumber(), newAnsweredCount, session.getTotalQuestions());
 
-            // 4. 推送回答已保存
+            // 4. 推送持久化后的逐题评分
             emitter.send(SseEmitter.event()
                     .name("answer_saved")
-                    .data(Map.of(
-                            "questionNumber", currentQuestion.getQuestionNumber(),
-                            "answeredCount", newAnsweredCount,
-                            "totalQuestions", session.getTotalQuestions())));
+                    .data(answerResult(currentQuestion, newAnsweredCount, session.getTotalQuestions())));
 
-            // 5. 判断是否还有剩余题目
-            if (newAnsweredCount >= session.getTotalQuestions()) {
-                // 全部答完 → AI 总评
+            // 5. 根据累计得分和薄弱点决定继续或结束
+            questions = questionRepository.findBySessionIdOrderByQuestionNumberAsc(sessionId);
+            if (shouldFinish(questions, newAnsweredCount, session.getTotalQuestions())) {
+                emitter.send(SseEmitter.event().name("interview_decision")
+                        .data(Map.of("action", "FINISH", "reason", buildFinishReason(questions))));
                 generateFinalEvaluation(session, questions, emitter, false);
             } else {
-                // 推送下一题
-                InterviewQuestion nextQuestion = questions.get(newAnsweredCount);
+                InterviewQuestion nextQuestion = questionRepository.save(generateNextQuestion(session, questions));
+                String focus = weakestCategory(questions);
+                emitter.send(SseEmitter.event().name("interview_decision")
+                        .data(Map.of("action", "CONTINUE", "reason", "继续考察当前薄弱领域", "focus", focus)));
                 emitter.send(SseEmitter.event()
                         .name("question")
                         .data(Map.of(
@@ -203,7 +193,8 @@ public class InterviewServiceImpl implements InterviewService {
                                 "questionText", nextQuestion.getQuestionText(),
                                 "category", nextQuestion.getCategory() != null ? nextQuestion.getCategory() : "",
                                 "difficulty", nextQuestion.getDifficulty() != null ? nextQuestion.getDifficulty() : "",
-                                "totalQuestions", session.getTotalQuestions())));
+                                "totalQuestions", session.getTotalQuestions(),
+                                "adaptiveFocus", focus)));
                 emitter.complete();
             }
 
@@ -370,6 +361,98 @@ public class InterviewServiceImpl implements InterviewService {
                 """, position, questionCount, questionCount);
     }
 
+    /** 根据已有表现生成唯一的下一题。 */
+    private InterviewQuestion generateNextQuestion(InterviewSession session,
+                                                    List<InterviewQuestion> previousQuestions)
+            throws JsonProcessingException {
+        int number = previousQuestions.size() + 1;
+        String history = previousQuestions.stream()
+                .map(q -> String.format("第%d题[%s/%s]：%s；得分：%s；点评：%s",
+                        q.getQuestionNumber(), safe(q.getCategory()), safe(q.getDifficulty()),
+                        q.getQuestionText(), q.getScore() == null ? "未评分" : q.getScore(),
+                        safe(q.getComment())))
+                .collect(Collectors.joining("\n"));
+        String focus = previousQuestions.isEmpty() ? "岗位核心基础" : weakestCategory(previousQuestions);
+        String prompt = String.format("""
+                你是%s岗位的技术面试官。请生成第%d题，只生成一题。
+                本题优先考察：%s。根据候选人已有表现调整难度：低分时换一个角度验证薄弱点，高分时提升为应用或系统设计题。
+                不得重复已问题目。
+
+                已有记录：
+                %s
+
+                仅输出严格 JSON：
+                {"questionNumber":%d,"question":"题目","category":"基础知识|项目经验|系统设计|问题解决","difficulty":"基础|进阶|综合"}
+                """, session.getPosition(), number, focus,
+                history.isBlank() ? "暂无，这是首题。" : history, number);
+        JsonNode node = extractJsonObject(aiService.chat(prompt));
+        String text = node.path("question").asText("").trim();
+        if (text.isEmpty()) throw new BusinessException("AI 生成题目失败，请重试");
+        return InterviewQuestion.builder()
+                .session(session).questionNumber(number).questionText(text)
+                .category(node.path("category").asText("基础知识"))
+                .difficulty(node.path("difficulty").asText(number <= 2 ? "基础" : "进阶"))
+                .build();
+    }
+
+    /** 逐题评分，评分结果与用户回答在推送下一题前一起持久化。 */
+    private void scoreAnswer(InterviewSession session, InterviewQuestion question)
+            throws JsonProcessingException {
+        String prompt = String.format("""
+                你是%s岗位面试官。请对以下回答立即评分。
+                题目：%s
+                类别/%s：%s/%s
+                回答：%s
+                评分标准：90-100全面深入，75-89正确但欠深入，60-74基本正确但不完整，40-59偏差较大，0-39基本不会。
+                仅输出严格 JSON：
+                {"score":0,"comment":"具体亮点和不足，30-80字","referenceAnswer":"参考答案要点，50-150字"}
+                """, session.getPosition(), question.getQuestionText(),
+                question.getCategory(), question.getCategory(), question.getDifficulty(), question.getUserAnswer());
+        JsonNode result = extractJsonObject(aiService.chat(prompt));
+        double score = Math.max(0, Math.min(100, result.path("score").asDouble(0)));
+        question.setScore(BigDecimal.valueOf(score));
+        question.setComment(result.path("comment").asText(""));
+        question.setReferenceAnswer(result.path("referenceAnswer").asText(""));
+    }
+
+    private boolean shouldFinish(List<InterviewQuestion> questions, int answeredCount, int maxQuestions) {
+        if (answeredCount >= maxQuestions) return true;
+        if (answeredCount < Math.min(3, maxQuestions)) return false;
+        List<InterviewQuestion> answered = questions.stream().filter(q -> q.getScore() != null).toList();
+        double average = answered.stream().mapToDouble(q -> q.getScore().doubleValue()).average().orElse(0);
+        boolean hasWeakPoint = answered.stream().anyMatch(q -> q.getScore().doubleValue() < 60);
+        return average >= 85 && !hasWeakPoint;
+    }
+
+    private String weakestCategory(List<InterviewQuestion> questions) {
+        return questions.stream().filter(q -> q.getScore() != null)
+                .collect(Collectors.groupingBy(q -> safe(q.getCategory()),
+                        Collectors.averagingDouble(q -> q.getScore().doubleValue())))
+                .entrySet().stream().min(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey).orElse("岗位核心基础");
+    }
+
+    private String buildFinishReason(List<InterviewQuestion> questions) {
+        double average = questions.stream().filter(q -> q.getScore() != null)
+                .mapToDouble(q -> q.getScore().doubleValue()).average().orElse(0);
+        return String.format("已完成能力评估（当前平均分 %.1f），开始生成反馈报告", average);
+    }
+
+    private Map<String, Object> answerResult(InterviewQuestion q, int answeredCount, int totalQuestions) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("questionNumber", q.getQuestionNumber());
+        result.put("answeredCount", answeredCount);
+        result.put("totalQuestions", totalQuestions);
+        result.put("score", q.getScore());
+        result.put("comment", safe(q.getComment()));
+        result.put("referenceAnswer", safe(q.getReferenceAnswer()));
+        return result;
+    }
+
+    private String safe(String value) {
+        return value == null || value.isBlank() ? "未分类" : value;
+    }
+
     /**
      * 构建最终评价 Prompt（面试全部结束后或主动终止时）。
      *
@@ -484,6 +567,10 @@ public class InterviewServiceImpl implements InterviewService {
             return;
         }
 
+        // 自适应面试可提前结束，此时总题数应表示实际面试题数。
+        session.setTotalQuestions(answeredQuestions.size());
+        sessionRepository.save(session);
+
         // 调用 AI 生成评价
         String evalPrompt = buildEvaluationPrompt(session.getPosition(), answeredQuestions, isTerminated);
         String aiResponse = aiService.chat(evalPrompt);
@@ -508,13 +595,15 @@ public class InterviewServiceImpl implements InterviewService {
                             .filter(q -> q.getQuestionNumber() == qNumber)
                             .findFirst()
                             .ifPresent(q -> {
-                                if (eval.has("score")) {
+                                // 逐题分数已在提交回答时持久化，报告阶段不改写。
+                                if (q.getScore() == null && eval.has("score")) {
                                     q.setScore(BigDecimal.valueOf(eval.get("score").asDouble()));
                                 }
-                                if (eval.has("comment")) {
+                                if ((q.getComment() == null || q.getComment().isBlank()) && eval.has("comment")) {
                                     q.setComment(eval.get("comment").asText());
                                 }
-                                if (eval.has("referenceAnswer")) {
+                                if ((q.getReferenceAnswer() == null || q.getReferenceAnswer().isBlank())
+                                        && eval.has("referenceAnswer")) {
                                     q.setReferenceAnswer(eval.get("referenceAnswer").asText());
                                 }
                             });

@@ -1,8 +1,10 @@
 import request from './request'
+import { buildApiUrl } from '../config/app'
 
 export function sendMessageStream(message, conversationId, model, { signal, onToken, onDone, onError }) {
   const token = localStorage.getItem('token')
-  fetch('/api/chat', {
+
+  fetch(buildApiUrl('/chat'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -17,6 +19,7 @@ export function sendMessageStream(message, conversationId, model, { signal, onTo
       window.location.href = '/login'
       return
     }
+
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}))
       onError(new Error(errData.message || '请求失败'))
@@ -31,10 +34,7 @@ export function sendMessageStream(message, conversationId, model, { signal, onTo
     try {
       while (true) {
         const { done, value } = await reader.read()
-        if (done) {
-          console.log('[SSE] 流结束')
-          break
-        }
+        if (done) break
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -43,48 +43,39 @@ export function sendMessageStream(message, conversationId, model, { signal, onTo
         for (const line of lines) {
           if (line.startsWith('event:')) {
             currentEvent = line.slice(6).trim()
-          } else if (line.startsWith('data:')) {
-            const raw = line.slice(5).trim()
-            console.log('[SSE] event:', currentEvent, 'raw:', raw.substring(0, 50))
-            try {
-              const data = JSON.parse(raw)
-              if (currentEvent === 'token') {
-                console.log('[SSE] token (JSON):', data)
-                onToken(typeof data === 'string' ? data : (data.content || ''))
-              } else if (currentEvent === 'done') {
-                console.log('[SSE] done:', data)
-                onDone(data)
-              } else if (currentEvent === 'error') {
-                console.log('[SSE] error:', data)
-                onError(new Error(data.message || '请求失败'))
-              }
-            } catch {
-              if (currentEvent === 'token') {
-                console.log('[SSE] token (raw):', raw)
-                onToken(raw)
-              } else {
-                console.log('[SSE] 无法解析 data:', raw.substring(0, 50))
-              }
+            continue
+          }
+
+          if (!line.startsWith('data:')) {
+            continue
+          }
+
+          const raw = line.slice(5).trim()
+          try {
+            const data = JSON.parse(raw)
+            if (currentEvent === 'token') {
+              onToken(typeof data === 'string' ? data : (data.content || ''))
+            } else if (currentEvent === 'done') {
+              onDone(data)
+            } else if (currentEvent === 'error') {
+              onError(new Error(data.message || '请求失败'))
             }
+          } catch {
+            if (currentEvent === 'token') {
+              onToken(raw)
+            }
+          } finally {
             currentEvent = ''
           }
         }
       }
     } catch (err) {
-      if (err.name === 'AbortError') {
-        onError(err)
-      } else {
-        onError(err)
-      }
+      onError(err)
     } finally {
       reader.releaseLock()
     }
   }).catch(err => {
-    if (err.name === 'AbortError') {
-      onError(err)
-    } else {
-      onError(err)
-    }
+    onError(err)
   })
 }
 

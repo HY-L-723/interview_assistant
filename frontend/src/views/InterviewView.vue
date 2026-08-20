@@ -442,8 +442,11 @@ async function viewInterviewSession(sess) {
       interviewState.value = 'completed'
     } else if (detail.status === 'TERMINATED') {
       interviewState.value = 'terminated'
+    } else if (detail.status === 'IN_PROGRESS') {
+      interviewState.value = 'in_progress'
+    } else if (detail.status === 'EVALUATING') {
+      interviewState.value = 'evaluating'
     } else {
-      // IN_PROGRESS / EVALUATING 等异常状态，显示为进行中
       interviewState.value = 'completed'
     }
 
@@ -628,7 +631,24 @@ async function handleSubmitAnswer() {
   await submitAnswer(sessionId.value, answer, {
     onAnswerSaved: (data) => {
       answeredCount.value = data.answeredCount
+      totalQuestions.value = data.totalQuestions
       typing.value = false
+      messages.push({
+        role: 'assistant',
+        kind: 'info',
+        content: `本题得分：${data.score}分。${data.comment || ''}`,
+        time: fmtTime(new Date())
+      })
+    },
+    onDecision: (data) => {
+      messages.push({
+        role: 'assistant',
+        kind: 'info',
+        content: data.action === 'CONTINUE'
+          ? `${data.reason}${data.focus ? `：${data.focus}` : ''}`
+          : data.reason,
+        time: fmtTime(new Date())
+      })
     },
     onQuestion: (data) => {
       messages.push({

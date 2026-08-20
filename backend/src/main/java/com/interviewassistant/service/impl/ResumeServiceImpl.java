@@ -8,11 +8,19 @@ import com.interviewassistant.entity.User;
 import com.interviewassistant.repository.ResumeRepository;
 import com.interviewassistant.repository.UserRepository;
 import com.interviewassistant.service.AIService;
+import com.interviewassistant.service.PdfService;
 import com.interviewassistant.service.ResumeService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -22,13 +30,21 @@ public class ResumeServiceImpl implements ResumeService {
     private final ResumeRepository resumeRepository;
     private final UserRepository userRepository;
     private final AIService aiService;
+    private final PdfService pdfService;
+
+    private static final Set<String> ALLOWED_PHOTO_EXTENSIONS = Set.of(".jpg", ".jpeg", ".png", ".webp");
+
+    @Value("${app.upload.path:uploads}")
+    private String uploadPath;
 
     public ResumeServiceImpl(ResumeRepository resumeRepository,
                              UserRepository userRepository,
-                             AIService aiService) {
+                             AIService aiService,
+                             PdfService pdfService) {
         this.resumeRepository = resumeRepository;
         this.userRepository = userRepository;
         this.aiService = aiService;
+        this.pdfService = pdfService;
     }
 
     @Override
@@ -75,6 +91,57 @@ public class ResumeServiceImpl implements ResumeService {
                         .createdAt(r.getCreatedAt())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public byte[] generatePdf(Long userId, Long resumeId) {
+        Resume resume = findOwnedResume(userId, resumeId);
+        return pdfService.generatePdf(resume.getGeneratedContent());
+    }
+
+    @Override
+    public String uploadPhoto(Long userId, String originalFilename, byte[] content) {
+        if (content == null || content.length == 0) {
+            throw new BusinessException("上传照片不能为空");
+        }
+        // 同时校验用户存在，避免为无效用户写入孤立文件。
+        userRepository.findById(userId).orElseThrow(() -> new BusinessException("用户不存在"));
+
+        String extension = getPhotoExtension(originalFilename);
+        try {
+            Path photoDirectory = Paths.get(uploadPath, "photos").toAbsolutePath().normalize();
+            Files.createDirectories(photoDirectory);
+            String filename = userId + "_" + UUID.randomUUID().toString().substring(0, 8) + extension;
+            Path target = photoDirectory.resolve(filename).normalize();
+            if (!target.startsWith(photoDirectory)) {
+                throw new BusinessException("非法的文件路径");
+            }
+            Files.write(target, content);
+            return "/uploads/photos/" + filename;
+        } catch (IOException e) {
+            log.error("照片保存失败: userId={}", userId, e);
+            throw new BusinessException("照片上传失败");
+        }
+    }
+
+    private Resume findOwnedResume(Long userId, Long resumeId) {
+        Resume resume = resumeRepository.findById(resumeId)
+                .orElseThrow(() -> new BusinessException("简历不存在"));
+        if (!resume.getUser().getId().equals(userId)) {
+            throw new BusinessException(403, "无权访问此简历");
+        }
+        return resume;
+    }
+
+    private String getPhotoExtension(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            throw new BusinessException("照片文件缺少扩展名");
+        }
+        String extension = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+        if (!ALLOWED_PHOTO_EXTENSIONS.contains(extension)) {
+            throw new BusinessException("仅支持 JPG、PNG 或 WebP 照片");
+        }
+        return extension;
     }
 
     private String buildPrompt(ResumeRequest req) {

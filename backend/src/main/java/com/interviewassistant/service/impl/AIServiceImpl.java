@@ -5,6 +5,7 @@ import com.interviewassistant.ai.DeepSeekRequest;
 import com.interviewassistant.ai.DeepSeekResponse;
 import com.interviewassistant.ai.DeepSeekStreamChunk;
 import com.interviewassistant.common.AIServiceException;
+import com.interviewassistant.dto.AIChatMessage;
 import com.interviewassistant.service.AIService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
 
 @Service
@@ -128,6 +130,11 @@ public class AIServiceImpl implements AIService {
 
     @Override
     public Flux<String> chatStream(String userMessage, String requestModel) {
+        return chatStream(List.of(new AIChatMessage("user", userMessage)), requestModel);
+    }
+
+    @Override
+    public Flux<String> chatStream(List<AIChatMessage> messages, String requestModel) {
         if (!StringUtils.hasText(apiKey)) {
             return Flux.error(new AIServiceException("DeepSeek API Key 未配置"));
         }
@@ -136,10 +143,17 @@ public class AIServiceImpl implements AIService {
         String effectiveModel = StringUtils.hasText(requestModel) ? requestModel : model;
         request.setModel(effectiveModel);
         request.setStream(true);
-        request.setMessages(List.of(
-                new DeepSeekRequest.Message("system", systemPrompt),
-                new DeepSeekRequest.Message("user", userMessage)
-        ));
+        List<DeepSeekRequest.Message> requestMessages = new ArrayList<>();
+        requestMessages.add(new DeepSeekRequest.Message("system", systemPrompt));
+        if (messages != null) {
+            messages.stream()
+                    .filter(message -> message != null
+                            && ("user".equals(message.role()) || "assistant".equals(message.role()))
+                            && StringUtils.hasText(message.content()))
+                    .map(message -> new DeepSeekRequest.Message(message.role(), message.content()))
+                    .forEach(requestMessages::add);
+        }
+        request.setMessages(requestMessages);
 
         return webClient.post()
                 .uri(apiUrl)

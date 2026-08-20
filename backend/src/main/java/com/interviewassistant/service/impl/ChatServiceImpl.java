@@ -3,6 +3,7 @@ package com.interviewassistant.service.impl;
 import com.interviewassistant.common.BusinessException;
 import com.interviewassistant.common.RateLimitExceededException;
 import com.interviewassistant.dto.ChatHistoryItem;
+import com.interviewassistant.dto.AIChatMessage;
 import com.interviewassistant.dto.ConversationDto;
 import com.interviewassistant.entity.ChatMessage;
 import com.interviewassistant.entity.Conversation;
@@ -14,6 +15,8 @@ import com.interviewassistant.service.AIService;
 import com.interviewassistant.service.ChatService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
@@ -22,6 +25,8 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -38,6 +43,10 @@ public class ChatServiceImpl implements ChatService {
     private final ConversationRepository conversationRepository;
     private final UserRepository userRepository;
     private final AIService aiService;
+
+    /** 限制每次发送给模型的历史消息数，防止上下文无限增长。 */
+    @Value("${chat.context-message-limit:20}")
+    private int contextMessageLimit = 20;
 
     public ChatServiceImpl(ChatMessageRepository chatMessageRepository,
                            ConversationRepository conversationRepository,
@@ -120,7 +129,8 @@ public class ChatServiceImpl implements ChatService {
             if (sub != null && !sub.isDisposed()) sub.dispose();
         });
 
-        Flux<String> tokenFlux = aiService.chatStream(message, model)
+        List<AIChatMessage> context = buildConversationContext(conversationId, message);
+        Flux<String> tokenFlux = aiService.chatStream(context, model)
                 .subscribeOn(Schedulers.boundedElastic());
 
         StringBuilder fullReply = new StringBuilder();
@@ -174,6 +184,27 @@ public class ChatServiceImpl implements ChatService {
                 .subscribe();
 
         subscriptionRef.set(subscription);
+    }
+
+    private List<AIChatMessage> buildConversationContext(Long conversationId, String currentMessage) {
+        int limit = Math.max(1, contextMessageLimit);
+        List<ChatMessage> recentMessages = new ArrayList<>(chatMessageRepository
+                .findByConversationIdOrderByCreatedAtDesc(conversationId, PageRequest.of(0, limit)));
+        Collections.reverse(recentMessages);
+
+        List<AIChatMessage> context = recentMessages.stream()
+                .filter(item -> USER_ROLE.equals(item.getRole()) || ASSISTANT_ROLE.equals(item.getRole()))
+                .map(item -> new AIChatMessage(item.getRole(), item.getContent()))
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        // 当前用户消息在读取历史前已入库；仅在仓储返回未包含它时补入。
+        if (context.isEmpty()
+                || !USER_ROLE.equals(context.get(context.size() - 1).role())
+                || !currentMessage.equals(context.get(context.size() - 1).content())) {
+            context.add(new AIChatMessage(USER_ROLE, currentMessage));
+        }
+        log.debug("构建会话上下文: conversationId={}, messageCount={}", conversationId, context.size());
+        return context;
     }
 
     private void sendErrorAndComplete(SseEmitter emitter, String message) {

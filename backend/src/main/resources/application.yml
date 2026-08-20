@@ -1,5 +1,20 @@
 server:
   port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  application:
+    name: interview-assistant
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  servlet:
+    multipart:
+      max-file-size: ${MAX_FILE_SIZE:5MB}
+      max-request-size: ${MAX_REQUEST_SIZE:10MB}
 
 app:
   upload:
@@ -7,33 +22,46 @@ app:
   cors:
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:3000,http://localhost:5173}
 
-spring:
-  profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
-
-# JWT 配置
 jwt:
   secret: ${JWT_SECRET:interview-assistant-secret-key-must-be-at-least-256-bits-long-for-hs256}
-  expiration: ${JWT_EXPIRATION:86400000}          # token 有效期：24小时（毫秒）
+  expiration: ${JWT_EXPIRATION:86400000}
 
-# DeepSeek API 配置
 llm:
   api-key: ${DEEPSEEK_API_KEY:}
   api-url: ${DEEPSEEK_API_URL:https://api.deepseek.com/chat/completions}
   model: ${DEEPSEEK_MODEL:deepseek-v4-pro}
   timeout: ${DEEPSEEK_TIMEOUT:60000}
   system-prompt: |
-    你是一位专业的计算机专业面试辅导助手。你的任务是帮助计算机专业的学生准备技术面试，
-    包括但不限于：数据结构与算法、操作系统、计算机网络、数据库、编程语言等核心课程的知识点讲解和模拟面试。
-    请用中文回答，回答要专业、准确、易懂。
+    你是一位专业的计算机专业面试辅导助手。你的任务是帮助计算机专业学生准备技术面试，
+    内容包括数据结构与算法、操作系统、计算机网络、数据库、编程语言、项目经验和系统设计。
+    请用中文回答，做到专业、准确、清晰、易懂。
 
-# 模拟面试配置
 interview:
-  default-question-count: ${INTERVIEW_DEFAULT_QUESTION_COUNT:5}          # 默认生成题目数量
-  max-question-count: ${INTERVIEW_MAX_QUESTION_COUNT:10}                 # 最大题目数量限制
+  default-question-count: ${INTERVIEW_DEFAULT_QUESTION_COUNT:5}
+  max-question-count: ${INTERVIEW_MAX_QUESTION_COUNT:10}
+
+chat:
+  context-message-limit: ${CHAT_CONTEXT_MESSAGE_LIMIT:20}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  info:
+    env:
+      enabled: true
+
+logging:
+  pattern:
+    level: "%5p [%X{requestId:-}]"
 
 ---
-# 开发环境配置
 spring:
   config:
     activate:
@@ -47,15 +75,14 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update          # 开发时自动建表/更新表结构，生产环境改成 validate
-    show-sql: true              # 控制台打印 SQL，调试用
+      ddl-auto: update
+    show-sql: true
     properties:
       hibernate:
-        format_sql: true        # SQL 格式化输出
+        format_sql: true
         dialect: org.hibernate.dialect.MySQLDialect
 
 ---
-# 生产环境配置
 spring:
   config:
     activate:

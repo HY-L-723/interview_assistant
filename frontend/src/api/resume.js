@@ -1,4 +1,5 @@
 import request from './request'
+import { buildApiUrl } from '../config/app'
 
 export function generateResume(data) {
   return request.post('/resume/generate', data)
@@ -15,5 +16,5 @@ export function uploadPhoto(file) {
 }
 
 export function downloadPdfUrl(resumeId) {
-  return `/api/resume/${resumeId}/pdf`
+  return buildApiUrl(`/resume/${resumeId}/pdf`)
 }
